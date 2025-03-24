@@ -1,0 +1,66 @@
+const express = require("express");
+const bodyParser = require("body-parser");
+const axios = require("axios");
+require("dotenv").config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
+
+app.use(bodyParser.json());
+
+// Webhook verification
+app.get("/webhook", (req, res) => {
+    let mode = req.query["hub.mode"];
+    let token = req.query["hub.verify_token"];
+    let challenge = req.query["hub.challenge"];
+
+    if (mode === "subscribe" && token === VERIFY_TOKEN) {
+        console.log("WEBHOOK VERIFIED");
+        res.status(200).send(challenge);
+    } else {
+        res.sendStatus(403);
+    }
+});
+
+// Handle messages
+app.post("/webhook", async (req, res) => {
+    let body = req.body;
+    if (body.object === "page") {
+        body.entry.forEach(async (entry) => {
+            let webhook_event = entry.messaging[0];
+            let sender_psid = webhook_event.sender.id;
+            
+            if (webhook_event.message) {
+                await handleMessage(sender_psid, webhook_event.message);
+            }
+        });
+        res.status(200).send("EVENT_RECEIVED");
+    } else {
+        res.sendStatus(404);
+    }
+});
+
+async function handleMessage(sender_psid, received_message) {
+    let response;
+    if (received_message.text) {
+        response = { text: `You said: ${received_message.text}` };
+    }
+    await callSendAPI(sender_psid, response);
+}
+
+async function callSendAPI(sender_psid, response) {
+    await axios.post(
+        `https://graph.facebook.com/v12.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
+        {
+            recipient: { id: sender_psid },
+            message: response,
+        }
+    );
+}
+
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
+
